@@ -947,7 +947,7 @@ html, body {
   color: var(--gold); letter-spacing: 1px; margin-bottom: 6px;
   display: flex; justify-content: space-between;
 }
-#debugCopy {
+#debugCopy, #debugSheet {
   background: none; border: 1px solid var(--gold); color: var(--gold);
   border-radius: 4px; font-family: var(--mono); font-size: 9.5px;
   padding: 2px 8px; cursor: pointer;
@@ -1298,7 +1298,10 @@ html, body {
 </div>
 
 <div id="debugPanel">
-  <div class="dbg-head"><span>TTS DIAGNOSTICS</span><button id="debugCopy">COPY</button></div>
+  <div class="dbg-head">
+    <span>DIAGNOSTICS</span>
+    <span><button id="debugSheet">TEST SHEET</button> <button id="debugCopy">COPY</button></span>
+  </div>
   <div id="debugLog"></div>
 </div>
 
@@ -1358,6 +1361,16 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('debugPanel').classList.add('on');
   document.getElementById('debugCopy').onclick = () => {
     navigator.clipboard && navigator.clipboard.writeText(dbgLines.join('\n'));
+  };
+  document.getElementById('debugSheet').onclick = () => {
+    dbg('--- manual sheet test ---');
+    postToSheet({
+      q1: 'TEST — food and drink',
+      q2: 'TEST — service',
+      q3: 'TEST — improvement',
+      email: 'test@example.com',
+      reward: 'TEST'
+    });
   };
   dbg('debug on · ' + location.protocol + ' · ' + navigator.userAgent.slice(0,60));
 });
@@ -2143,17 +2156,53 @@ function submitToSheets(userEmail, reward) {
     reward: rewardLabel,
   };
 
-  // Fire-and-forget — we don't block the UI on the response.
-  // no-cors mode is required for Apps Script endpoints from the browser.
-  fetch(SHEETS_URL, {
+  postToSheet(payload);
+}
+
+/* Sends the row and reports what Apps Script said.
+   Content-Type text/plain keeps this a CORS-"simple" request: no preflight,
+   and the response is readable — unlike mode:'no-cors', which hides whether
+   the write actually succeeded. Apps Script still finds the JSON in
+   e.postData.contents. */
+function postToSheet(payload) {
+  dbg('sheet: sending ' + JSON.stringify(payload).length + ' bytes…');
+
+  return fetch(SHEETS_URL, {
     method:  'POST',
-    mode:    'no-cors',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body:    JSON.stringify(payload),
-  }).catch(() => {
-    // Silent failure — network may be unavailable; data is not lost from the
-    // restaurant's perspective since the session already moved to thank-you.
-    console.warn('TableTalk · Stone & Rail: could not reach Google Sheets endpoint.');
+    redirect: 'follow'
+  })
+  .then(function (res) {
+    return res.text().then(function (text) {
+      return { status: res.status, text: text };
+    });
+  })
+  .then(function (r) {
+    var body = (r.text || '').trim();
+    if (body.indexOf('"success":true') >= 0 || body.indexOf('"status"') >= 0) {
+      dbg('sheet: WROTE OK (' + r.status + ') ' + body.slice(0, 120), 'ok');
+    } else if (body.indexOf('"success":false') >= 0) {
+      // The script ran but threw — usually a wrong SHEET_NAME
+      dbg('sheet: SCRIPT ERROR ' + body.slice(0, 200), 'bad');
+    } else if (body.toLowerCase().indexOf('<!doctype') >= 0 ||
+               body.toLowerCase().indexOf('sign in') >= 0) {
+      dbg('sheet: got a LOGIN PAGE — deployment access is not "Anyone"', 'bad');
+    } else {
+      dbg('sheet: unexpected reply (' + r.status + ') ' + body.slice(0, 200), 'bad');
+    }
+  })
+  .catch(function (err) {
+    dbg('sheet: request blocked (' + err.message + ') — retrying no-cors', 'bad');
+    // Fallback so the row is not lost, even though we cannot read the result
+    fetch(SHEETS_URL, {
+      method:  'POST',
+      mode:    'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body:    JSON.stringify(payload)
+    })
+    .then(function () { dbg('sheet: no-cors retry sent (result unreadable)', 'info'); })
+    .catch(function () { dbg('sheet: no-cors retry ALSO failed', 'bad'); });
   });
 }
 
