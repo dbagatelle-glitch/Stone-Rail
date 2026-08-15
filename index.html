@@ -2111,13 +2111,25 @@ function showTypeInput(qid) {
              border-radius:14px;padding:14px 18px;color:var(--cream);
              font-family:var(--serif);font-size:16px;font-style:italic;
              line-height:1.5;min-height:90px;resize:none;outline:none;"
-      oninput="responses['${qid}']=this.value"></textarea>`;
+      oninput="onTypedInput('${qid}', this.value)"></textarea>`;
+}
+
+/* Typed answers must open the Next gate themselves — setTranscript()
+   targets the transcript bubble, which showTypeInput has replaced. */
+function onTypedInput(qid, val) {
+  responses[qid] = val;
+  const n       = qid.slice(-1);
+  const nextEl  = document.getElementById('next' + n);
+  const hintEl  = document.getElementById('hint' + n);
+  const hasText = !!(val && val.trim());
+  if (nextEl) nextEl.classList.toggle('locked', !hasText);
+  if (hintEl) hintEl.style.visibility = hasText ? 'hidden' : 'visible';
 }
 
 /* ════════════════════════════════════════════
    GOOGLE SHEETS SUBMISSION
 ════════════════════════════════════════════ */
-const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbz8GZr-0znJgXaGFzibxCwdWGIyupgSdwOk7uZ0xy5hZf38FDI5l_26aUvxayrf1j0/exec';
+const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwP9BG89cwXlEHFeI_rU3nn0Mww-bhQbO0PTqRHrKPVjlAfo-eUqVVmF0TA7z_FHZo0/exec';
 
 function submitToSheets(userEmail, reward) {
   const rewardLabel = reward === 'dessert' ? 'Free Starter'
